@@ -1,62 +1,31 @@
-# Multi-stage Docker build for Advanced Duplicate Scanner
-# Stage 1: Build React frontend
-FROM node:18-alpine as frontend-builder
-
-WORKDIR /app/frontend
-
-# Copy package files for dependency caching
-COPY frontend/package*.json ./
-RUN npm ci --only=production
-
-# Copy frontend source and build
-COPY frontend/ ./
-RUN npm run build
-
-# Stage 2: Python backend with dependencies
-FROM python:3.11-slim as backend-builder
-
-# Install system dependencies for compilation
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install rclone for cloud storage access
-RUN curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip \
-    && unzip rclone-current-linux-amd64.zip \
-    && mv rclone-v*/rclone /usr/bin/ \
-    && rm -rf rclone-* \
-    && chmod +x /usr/bin/rclone
-
-# Create virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Stage 3: Production runtime
+# Single-stage Docker build for Advanced Duplicate Scanner (no external frontend)
 FROM python:3.11-slim as production
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     sqlite3 \
+    netcat-openbsd \
+    unzip \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r scanner \
     && useradd -r -g scanner scanner
 
-# Copy virtual environment from builder stage
-COPY --from=backend-builder /opt/venv /opt/venv
-COPY --from=backend-builder /usr/bin/rclone /usr/bin/rclone
+# Install rclone for cloud storage access
+RUN curl -sS -L https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip \
+    && unzip -d /tmp /tmp/rclone.zip \
+    && mv /tmp/rclone-*/rclone /usr/bin/rclone \
+    && chmod +x /usr/bin/rclone \
+    && rm -rf /tmp/rclone*
 
-# Copy built frontend from frontend-builder stage
-COPY --from=frontend-builder /app/frontend/dist /app/static
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Set up application directory
+# Copy requirements and install Python dependencies
 WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source
 COPY app/ ./app/
@@ -68,9 +37,8 @@ RUN mkdir -p /app/data /app/db /app/logs \
     && chown -R scanner:scanner /app \
     && chmod +x /app/scripts/*.sh
 
-# Set environment variables
-ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH="/app" \
+# Environment variables (can be overridden by docker-compose/.env)
+ENV PYTHONPATH="/app" \
     SCANNER_ENV="production" \
     SCANNER_LOG_LEVEL="INFO" \
     SCANNER_WORKERS="4" \
@@ -80,12 +48,12 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -fsS http://localhost:8000/health || exit 1
 
 # Switch to non-root user
 USER scanner
 
-# Expose ports
+# Expose API port
 EXPOSE 8000
 
 # Run application
