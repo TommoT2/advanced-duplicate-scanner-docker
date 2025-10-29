@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # Main application container
+  duplicate-scanner:
+    build: .
+    container_name: duplicate-scanner-app
+    ports:
+      - "3000:8000"
+    volumes:
+      - ${DATA_PATH:-C:/Data}:/app/data:ro
+      - ./config:/app/config
+      - ./db:/app/db
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql://scanner:${POSTGRES_PASSWORD:-scannerpass}@postgres:5432/duplicates
+      - REDIS_URL=redis://redis:6379/0
+      - SCANNER_WORKERS=4
+      - SCANNER_CHUNK_SIZE=8388608
+      - LOG_LEVEL=INFO
+      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - scanner-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL database for production
+  postgres:
+    image: postgres:15-alpine
+    container_name: duplicate-scanner-db
+    environment:
+      - POSTGRES_DB=duplicates
+      - POSTGRES_USER=scanner
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-scannerpass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanner -d duplicates"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and job queues
+  redis:
+    image: redis:7-alpine
+    container_name: duplicate-scanner-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Background worker for heavy scanning tasks
+  scanner-worker:
+    build: .
+    container_name: duplicate-scanner-worker
+    command: python -m app.worker
+    volumes:
+      - ${DATA_PATH:-C:/Data}:/app/data:ro
+      - ./config:/app/config
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql://scanner:${POSTGRES_PASSWORD:-scannerpass}@postgres:5432/duplicates
+      - REDIS_URL=redis://redis:6379/0
+      - WORKER_CONCURRENCY=4
+      - SCANNER_CHUNK_SIZE=8388608
+      - LOG_LEVEL=INFO
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  scanner-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
