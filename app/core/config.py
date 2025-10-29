@@ -3,7 +3,8 @@ Application configuration using Pydantic settings
 """
 
 from typing import Optional, List
-from pydantic import BaseSettings, validator
+from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from pathlib import Path
 
 class Settings(BaseSettings):
@@ -43,7 +44,8 @@ class Settings(BaseSettings):
     # API Configuration
     API_V1_STR: str = "/api/v1"
     
-    @validator("DATABASE_URL", pre=True)
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
     def validate_database_url(cls, v):
         if v.startswith("sqlite"):
             # Ensure SQLite database directory exists
