@@ -1,10 +1,9 @@
-version: '3.8'
-
 services:
-  # Main application container
   duplicate-scanner:
     build: .
     container_name: duplicate-scanner-app
+    env_file:
+      - .env
     ports:
       - "3000:8000"
     volumes:
@@ -13,12 +12,12 @@ services:
       - ./db:/app/db
       - ./logs:/app/logs
     environment:
-      - DATABASE_URL=postgresql://scanner:${POSTGRES_PASSWORD:-scannerpass}@postgres:5432/duplicates
-      - REDIS_URL=redis://redis:6379/0
-      - SCANNER_WORKERS=4
-      - SCANNER_CHUNK_SIZE=8388608
-      - LOG_LEVEL=INFO
-      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+      - DATABASE_URL=${DATABASE_URL:-postgresql://scanner:${POSTGRES_PASSWORD:-scannerpass}@postgres:5432/duplicates}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SCANNER_WORKERS=${SCANNER_WORKERS:-4}
+      - SCANNER_CHUNK_SIZE=${SCANNER_CHUNK_SIZE:-8388608}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RCLONE_CONFIG_PATH=${RCLONE_CONFIG_PATH:-/app/config/rclone.conf}
     depends_on:
       - postgres
       - redis
@@ -32,7 +31,6 @@ services:
       retries: 3
       start_period: 40s
 
-  # PostgreSQL database for production
   postgres:
     image: postgres:15-alpine
     container_name: duplicate-scanner-db
@@ -52,7 +50,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis for caching and job queues
   redis:
     image: redis:7-alpine
     container_name: duplicate-scanner-redis
@@ -68,21 +65,22 @@ services:
       timeout: 5s
       retries: 3
 
-  # Background worker for heavy scanning tasks
   scanner-worker:
     build: .
     container_name: duplicate-scanner-worker
     command: python -m app.worker
+    env_file:
+      - .env
     volumes:
       - ${DATA_PATH:-C:/Data}:/app/data:ro
       - ./config:/app/config
       - ./logs:/app/logs
     environment:
-      - DATABASE_URL=postgresql://scanner:${POSTGRES_PASSWORD:-scannerpass}@postgres:5432/duplicates
-      - REDIS_URL=redis://redis:6379/0
-      - WORKER_CONCURRENCY=4
-      - SCANNER_CHUNK_SIZE=8388608
-      - LOG_LEVEL=INFO
+      - DATABASE_URL=${DATABASE_URL:-postgresql://scanner:${POSTGRES_PASSWORD:-scannerpass}@postgres:5432/duplicates}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
+      - SCANNER_CHUNK_SIZE=${SCANNER_CHUNK_SIZE:-8388608}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
       - postgres
       - redis
