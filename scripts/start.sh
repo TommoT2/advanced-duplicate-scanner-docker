@@ -18,9 +18,9 @@ done
 echo "Redis is ready!"
 
 # Run database migrations if needed
-echo "Running database migrations..."
-python -m alembic upgrade head || echo "No migrations to run"
+echo "Checking database migrations..."
+# python -m alembic upgrade head || echo "No migrations to run"
 
 # Start the application
 echo "Starting FastAPI server..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
