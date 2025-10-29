@@ -1,0 +1,84 @@
+name: MCP Publish & Deploy
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'app/**'
+      - 'scripts/**'
+      - '.github/workflows/mcp-publish-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-push-image:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  publish-mcp-registry:
+    name: Publish to MCP registries
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate MCP server manifest
+        id: manifest
+        run: |
+          echo '{"name":"Advanced Duplicate Scanner MCP","description":"Duplicate scanning server with AI + rclone","docker_image":"ghcr.io/'"${{ github.repository }}"'","tools":["scan","status","list","hash"],"health":"/health"}' > mcp-server.json
+
+      - name: Upload manifest as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-server
+          path: mcp-server.json
+
+  deploy-docker-desktop:
+    name: Deploy to Docker Desktop via MCP Toolkit
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Echo deploy instructions
+        run: |
+          echo "Deploy via Docker Desktop MCP Toolkit Catalog:"
+          echo "Image: ghcr.io/${{ github.repository }}:main"

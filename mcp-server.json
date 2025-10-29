@@ -1,0 +1,17 @@
+{
+  "name": "Advanced Duplicate Scanner MCP",
+  "description": "MCP-integrert duplikatskanner. Docker-first, AI + rclone, audit & rollback.",
+  "docker_image": "ghcr.io/TommoT2/advanced-duplicate-scanner-docker",
+  "tools": [
+    {"name":"scan","description":"Start en skannajobb"},
+    {"name":"status","description":"Hent status for siste jobb"},
+    {"name":"list","description":"List filer/duplikater"},
+    {"name":"hash","description":"Hash en fil med BLAKE3"}
+  ],
+  "health": "/health",
+  "ports": [ {"external":3000, "internal":8000} ],
+  "env": ["DATA_PATH","POSTGRES_PASSWORD","REDIS_URL"],
+  "mounts": [
+    {"host":"${DATA_PATH}", "container":"/app/data", "mode":"ro"}
+  ]
+}
